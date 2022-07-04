@@ -232,6 +232,7 @@ void sl_btctrl_hci_packet_read(void)
 
 uint32_t hci_common_transport_transmit(uint8_t *data, int16_t len)
 {
+  bool forward_packet = true;
   #ifdef ENABLE_HCI_CONTROLLER_TO_HOST_FLOW_CONTROL
   //TODO: check the packet type.
   //        * if it is an event, then we can simply transmit it.
@@ -266,25 +267,40 @@ uint32_t hci_common_transport_transmit(uint8_t *data, int16_t len)
 
     if (flow_control.enable){
         //Limit on Host_ACL_Data_Packet_Length,fragment the packet in next step
-        if(len > host_buffer.acl_mtu)
+        if(len > host_buffer.acl_mtu){
           return -1;
+        }
 
       //Limit on Host_Total_Num_ACL_Data_Packets
+      //If there is space in host buffer, forward message and decrease buffer size,
+      //otherwise do not forward the packet
+      if(acl_packet_support_counter > 0){
+        forward_packet = true;
+        acl_packet_support_counter--;
+      } else {
+        forward_packet = false;
+      }
+
+      //If there is still space in the host buffer after this packet, enable further receiving
+      //otherwise disable further receiving
       if(acl_packet_support_counter > 0){
         sl_set_rx_enable(true);
-        acl_packet_support_counter--;
       }else{
         sl_set_rx_enable(false);
-        //Stop RX here is not good, just need to find the entry point that run out of Link Layer buffer
-        //Here need buffer for the packet, then it can re-send while host side buffer released.
-        return -1;
+        //Note: this will not actually stop receiving, it only starts non-ACKing the incoming packets
+        //This means that ACL packets will still be received, and they should not be forwarded until 
+        //there is free buffer space on the host, see above
       }
 
     }
   }
   #endif
 
-  return sl_hci_uart_write(data, len);
+  if (forward_packet){
+    return sl_hci_uart_write(data, len);
+  }
+
+  return 0;
 }
 
 void hci_common_transport_init(void)
