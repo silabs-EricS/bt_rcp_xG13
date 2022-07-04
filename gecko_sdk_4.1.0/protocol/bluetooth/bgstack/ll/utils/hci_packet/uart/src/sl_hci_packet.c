@@ -21,10 +21,58 @@ static uint16_t total_bytes_read;
 static uint16_t buffer_remaining;
 
 #ifdef ENABLE_HCI_CONTROLLER_TO_HOST_FLOW_CONTROL
+typedef  struct {
+  uint16_t handle;
+  uint16_t acl_packet_counter;
+} hci_connection_t;
+
 static uint8_t acl_packet_support_counter;
+static uint8_t num_hci_connections = 0;
+static hci_connection_t hci_connections[MAX_NUM_HCI_CONNECTIONS];
 static hci_controller_to_host_flow_control_t flow_control;
 static hci_host_buffer_t host_buffer;
 static hci_host_completed_t host_completed;
+
+void hci_add_connection(uint16_t handle)
+{
+  for (uint8_t i = 0; i < num_hci_connections; i++){
+    if (hci_connections[i].handle == handle)
+      return;
+  }
+
+  if (num_hci_connections < MAX_NUM_HCI_CONNECTIONS){
+    hci_connections[num_hci_connections].handle = handle;
+    hci_connections[num_hci_connections].acl_packet_counter = 0;
+    num_hci_connections++;
+  }
+}
+
+void hci_remove_connection(uint16_t handle)
+{  
+  uint8_t shift = 0;
+  
+  if (num_hci_connections < 1){
+    return;
+  }
+
+  for (uint8_t i = 0; i < (num_hci_connections-1); i++){
+    if (hci_connections[i].handle == handle){
+      shift = 1;
+    }
+    hci_connections[i] = hci_connections[i+shift];
+  }
+
+  num_hci_connections--;
+}
+
+hci_connection_t* hci_get_connection(uint16_t handle)
+{
+  for (uint8_t i = 0; i < num_hci_connections; i++){
+    if (hci_connections[i].handle == handle)
+      return &(hci_connections[i]);
+  }
+  return NULL;
+}
 
 extern void sl_set_rx_enable(bool en);
 #endif
@@ -183,6 +231,9 @@ void sl_btctrl_hci_packet_read(void)
                 memcpy(&flow_control, PACKET->hci_cmd.payload, PACKET->hci_cmd.param_len);
               if(flow_control.enable == 0){
                 acl_packet_support_counter = 0;
+                for (uint8_t i=0; i < MAX_NUM_HCI_CONNECTIONS; i++){
+                  hci_connections[i].acl_packet_counter = 0;
+                }
               }
               break;
             }
@@ -192,19 +243,29 @@ void sl_btctrl_hci_packet_read(void)
               if(PACKET->hci_cmd.param_len == sizeof(hci_host_buffer_t)) //Prevent the overflow
                 memcpy(&host_buffer, PACKET->hci_cmd.payload, PACKET->hci_cmd.param_len);
               acl_packet_support_counter = host_buffer.acl_pkts;
+              for (uint8_t i=0; i < MAX_NUM_HCI_CONNECTIONS; i++){
+                hci_connections[i].acl_packet_counter = 0;
+              }
               break;
             }
             case HCI_Host_Number_Of_Completed_Packets:
             {
               memset(&host_completed, 0, sizeof(hci_host_completed_t));
-              if(PACKET->hci_cmd.param_len == sizeof(hci_host_completed_t)) //Prevent the overflow
+              if(PACKET->hci_cmd.param_len <= sizeof(hci_host_completed_t)) //Prevent the overflow
                 memcpy(&host_completed, PACKET->hci_cmd.payload, PACKET->hci_cmd.param_len);
 
               for(uint8_t i = 0; i < host_completed.handle_num; i++){
-                acl_packet_support_counter += host_completed.count[i];
+                uint16_t current_handle = host_completed.handles_and_counts[i];
+                uint16_t current_count =  host_completed.handles_and_counts[host_completed.handle_num + i];
+                if (hci_get_connection(current_handle)){
+                  hci_get_connection(current_handle)->acl_packet_counter -= current_count;
+                }
+                acl_packet_support_counter += current_count;
               }
-              if(acl_packet_support_counter > host_buffer.acl_pkts)
+
+              if(acl_packet_support_counter > host_buffer.acl_pkts){
                 acl_packet_support_counter = host_buffer.acl_pkts;
+              }
 
               hci_common_transport_receive(NULL, 0, false);
               reset();
@@ -245,8 +306,20 @@ uint32_t hci_common_transport_transmit(uint8_t *data, int16_t len)
   hci_packet_t transmit_data;
   memcpy(&transmit_data, data, len);
   if (transmit_data.packet_type == hci_packet_type_event) {
+    if (transmit_data.hci_evt.eventcode == HCI_Connection_Complete) {
+      uint16_t current_handle = transmit_data.hci_evt.payload[1] + transmit_data.hci_evt.payload[2]*256;
+      hci_add_connection(current_handle);
+    }
+
     if (transmit_data.hci_evt.eventcode == HCI_Disconnection_Complete) {
-      acl_packet_support_counter = host_buffer.acl_pkts;
+      uint16_t current_handle = transmit_data.hci_evt.payload[1] + transmit_data.hci_evt.payload[2]*256;
+      if (hci_get_connection(current_handle)){
+        acl_packet_support_counter += hci_get_connection(current_handle)->acl_packet_counter;
+        if(acl_packet_support_counter > host_buffer.acl_pkts){
+          acl_packet_support_counter = host_buffer.acl_pkts;
+        }
+        hci_remove_connection(current_handle);
+      }
       sl_set_rx_enable(true); //enable it for next round
     }
 
@@ -268,6 +341,10 @@ uint32_t hci_common_transport_transmit(uint8_t *data, int16_t len)
         //Limit on Host_ACL_Data_Packet_Length,fragment the packet in next step
         if(len > host_buffer.acl_mtu)
           return -1;
+
+      if ( hci_get_connection(transmit_data.acl_pkt.conn_handle)){
+        hci_get_connection(transmit_data.acl_pkt.conn_handle)->acl_packet_counter++;
+      }
 
       //Limit on Host_Total_Num_ACL_Data_Packets
       if(acl_packet_support_counter > 0){
