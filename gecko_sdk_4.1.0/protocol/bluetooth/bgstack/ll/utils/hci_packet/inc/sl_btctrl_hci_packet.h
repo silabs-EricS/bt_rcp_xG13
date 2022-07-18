@@ -9,6 +9,7 @@
 #define hci_max_payload_size          256
 
 #define ENABLE_HCI_CONTROLLER_TO_HOST_FLOW_CONTROL
+#define MAX_NUM_HCI_CONNECTIONS                 32
 
 /* OpCode Group Fields */
 #define BT_OGF_LINK_CTRL                        0x01
@@ -59,6 +60,7 @@ enum hci_packet_opcode {
 };
 
 enum hci_packet_event {
+  HCI_Connection_Complete                       = 0x03,
   HCI_Disconnection_Complete                    = 0x05,
   HCI_Command_Complete                          = 0x0E
 };
@@ -81,8 +83,7 @@ SL_PACK_END()
 SL_PACK_START(1)
 typedef struct {
   uint8_t  handle_num;
-  uint16_t connection_handle[1];
-  uint16_t count[1];
+  uint16_t handles_and_counts[MAX_NUM_HCI_CONNECTIONS*2];
 } SL_ATTRIBUTE_PACKED hci_host_completed_t;
 SL_PACK_END()
 
