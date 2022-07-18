@@ -29,28 +29,6 @@
  ******************************************************************************/
 #include "em_common.h"
 
-//#include "sl_simple_button.h"
-#include "rail.h"
-
-//bool enable = true;
-
-//void sl_button_on_change  ( const sl_button_t *   handle  )
-//{
-//  if (sl_button_get_state(handle) == SL_SIMPLE_BUTTON_PRESSED){
-//    enable = false;
-//  } else {
-//    enable = true;
-//  }
-//}
-
-void sl_set_rx_enable(bool en)
-{
-  //enable = en;
-  if(en)
-    set_nack_packets_ctl_flag(0);
-  else
-    set_nack_packets_ctl_flag(1);
-}
 /***************************************************************************//**
  * Application Init.
  ******************************************************************************/

@@ -33,6 +33,17 @@ static hci_controller_to_host_flow_control_t flow_control;
 static hci_host_buffer_t host_buffer;
 static hci_host_completed_t host_completed;
 
+extern void set_nack_packets_ctl_flag(bool value);
+
+
+void sl_set_rx_enable(bool en)
+{
+  if(en)
+    set_nack_packets_ctl_flag(false);
+  else
+    set_nack_packets_ctl_flag(true);
+}
+
 void hci_add_connection(uint16_t handle)
 {
   for (uint8_t i = 0; i < num_hci_connections; i++){
@@ -73,8 +84,6 @@ hci_connection_t* hci_get_connection(uint16_t handle)
   }
   return NULL;
 }
-
-extern void sl_set_rx_enable(bool en);
 #endif
 
 static void reset(void)
@@ -293,8 +302,8 @@ void sl_btctrl_hci_packet_read(void)
 
 uint32_t hci_common_transport_transmit(uint8_t *data, int16_t len)
 {
-  bool forward_packet = true;
   #ifdef ENABLE_HCI_CONTROLLER_TO_HOST_FLOW_CONTROL
+  bool forward_packet = true;
   //TODO: check the packet type.
   //        * if it is an event, then we can simply transmit it.
   //           * if a HCI_Disconnection_Complete event was sent out, then the host_available_buffer_size should be set to host_total_buffer_size (reset)
@@ -343,11 +352,10 @@ uint32_t hci_common_transport_transmit(uint8_t *data, int16_t len)
         if(len > host_buffer.acl_mtu){
           return -1;
         }
-
+		
       if ( hci_get_connection(transmit_data.acl_pkt.conn_handle)){
         hci_get_connection(transmit_data.acl_pkt.conn_handle)->acl_packet_counter++;
       }
-
       //Limit on Host_Total_Num_ACL_Data_Packets
       //If there is space in host buffer, forward message and decrease buffer size,
       //otherwise do not forward the packet
@@ -377,7 +385,7 @@ uint32_t hci_common_transport_transmit(uint8_t *data, int16_t len)
     return sl_hci_uart_write(data, len);
   }
 
-  return 0;
+  return -1;
 }
 
 void hci_common_transport_init(void)
