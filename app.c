@@ -32,24 +32,7 @@
 //#include "sl_simple_button.h"
 #include "rail.h"
 
-bool enable = true;
-
-extern RAIL_RxPacketHandle_t __real_RAIL_GetRxPacketInfo(RAIL_Handle_t railHandle,
-                                                         RAIL_RxPacketHandle_t packetHandle,
-                                                         RAIL_RxPacketInfo_t *pPacketInfo);
-
-RAIL_RxPacketHandle_t __wrap_RAIL_GetRxPacketInfo(RAIL_Handle_t railHandle,
-                                           RAIL_RxPacketHandle_t packetHandle,
-                                           RAIL_RxPacketInfo_t *pPacketInfo)
-{
-  RAIL_RxPacketHandle_t handle = __real_RAIL_GetRxPacketInfo(railHandle,
-                                                   packetHandle,
-                                                   pPacketInfo);
-  if (enable == false){
-      pPacketInfo->packetStatus = RAIL_RX_PACKET_READY_CRC_ERROR;
-  }
-  return handle;
-}
+//bool enable = true;
 
 //void sl_button_on_change  ( const sl_button_t *   handle  )
 //{
